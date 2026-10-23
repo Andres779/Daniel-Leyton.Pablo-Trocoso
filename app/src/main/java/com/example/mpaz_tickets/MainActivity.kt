@@ -25,6 +25,13 @@ import com.example.mpaz_tickets.model.RolUsuario
 import com.example.mpaz_tickets.model.ReservaViewModel
 import com.example.mpaz_tickets.ui.*
 import com.example.mpaz_tickets.ui.theme.MPAZ_ticketsTheme
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.room.Room
+import com.example.mpaz_tickets.data.AppDatabase
+import com.example.mpaz_tickets.data.ReservasRepository
+
+
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ReservaViewModel by viewModels()
@@ -32,6 +39,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        //ACA CONSTRUYO MI BASE DE DATOS LOCAL:
+        val db = Room.databaseBuilder(
+            applicationContext,
+            AppDatabase::class,java,
+            "reservas.db"
+        ).build()
+
+        //ACA OBTENGO EL DAO PARA PASARLO AL REPOSITORIO
+        val dao = db.reservasDAO()
+        val repository = ReservasRepository(dao)
+
+        //Y por ultimo creo un Factory para inyectar el repositorio en el ViewModel
+        val factory = object : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return ReservaViewModel(repository) as T
+            }
+        }
+
+        // Aca instancio mi ViewModel utilizando el Factory
+        val viewModel = ViewModelProvider(this, factory)[ReservaViewModel::class.java]
+
         setContent {
             MPAZ_ticketsTheme {
                 MainApp(viewModel = viewModel)
