@@ -9,11 +9,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ReservasDao {
     @Insert
+    @JvmSuppressWildcards
     suspend fun insertar(solicitud: SolicitudReserva): Long
 
     @Query("SELECT * FROM solicitudes")
     fun listar(): Flow<List<SolicitudReserva>>
 
     @Update
+    @JvmSuppressWildcards
     suspend fun actualizar(solicitud: SolicitudReserva): Int
 }
