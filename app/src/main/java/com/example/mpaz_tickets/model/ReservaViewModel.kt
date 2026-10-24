@@ -2,17 +2,22 @@ package com.example.mpaz_tickets.model
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.mpaz_tickets.data.EstadoSolicitud
+import com.example.mpaz_tickets.data.ReservasRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.mpaz_tickets.data.SolicitudReserva
 
-class ReservaViewModel : ViewModel() {
+// 1. Agregamos el repositorio al constructor
+class ReservaViewModel(private val repository: ReservasRepository) : ViewModel() {
 
     // 1. ESTADOS Y FLUJOS (STATE FLOWS)
     private val _usuarios = MutableStateFlow<List<Usuario>>(
@@ -33,18 +38,14 @@ class ReservaViewModel : ViewModel() {
     private val _historial = MutableStateFlow<List<EventoAuditoria>>(emptyList())
     val historial: StateFlow<List<EventoAuditoria>> = _historial.asStateFlow()
 
-    // Lista interna privada con todas las notificaciones y su destinatario objetivo
     private val _notificacionesInternas = MutableStateFlow<List<NotificacionConDestino>>(emptyList())
 
-    // Flujo REACTIVO de notificaciones filtradas según el usuario logueado en tiempo real
     val notificaciones: StateFlow<List<Notificacion>> = combine(_usuarioActual, _notificacionesInternas) { usuario, listaNotis ->
         if (usuario == null) {
             emptyList()
         } else if (usuario.rol == RolUsuario.INSPECTORIA) {
-            // Inspectoría ve notificaciones dirigidas a su ID o avisos globales de solicitudes
             listaNotis.filter { it.destinatarioId == usuario.id || it.esGlobalInspectoria }.map { it.notificacion }
         } else {
-            // Personal Autorizado ve única y exclusivamente sus propias notificaciones
             listaNotis.filter { it.destinatarioId == usuario.id }.map { it.notificacion }
         }
     }.stateIn(
@@ -53,8 +54,17 @@ class ReservaViewModel : ViewModel() {
         initialValue = emptyList()
     )
 
+    // 2. INICIALIZACIÓN DE LA BASE DE DATOS
+    init {
+        // Al iniciar, nos suscribimos a los cambios de la base de datos de forma reactiva
+        viewModelScope.launch {
+            repository.obtenerTodasLasReservas().collect { listaDeBaseDeDatos ->
+                _reservas.value = listaDeBaseDeDatos.map { it.toReserva()}
+            }
+        }
+    }
 
-    // 2. GESTIÓN DE AUTENTICACIÓN Y SESIÓN
+    // 3. GESTIÓN DE AUTENTICACIÓN Y SESIÓN
     fun iniciarSesion(correo: String, contrasenia: String): Boolean {
         val user = _usuarios.value.find {
             it.correo.trim().equals(correo.trim(), ignoreCase = true) && it.contrasenia == contrasenia
@@ -72,8 +82,7 @@ class ReservaViewModel : ViewModel() {
         _usuarioActual.value = null
     }
 
-
-    // 3. GESTIÓN DE USUARIOS (INSPECTORÍA)
+    // 4. GESTIÓN DE USUARIOS
     fun crearUsuario(nombre: String, correo: String, rol: RolUsuario, contrasenia: String): String {
         val correoLimpio = correo.trim().lowercase()
 
@@ -106,8 +115,7 @@ class ReservaViewModel : ViewModel() {
         registrarAuditoria("Usuario Eliminado", "Se eliminó al usuario: ${usuarioAEliminar?.nombre ?: idUsuario}")
     }
 
-
-    // 4. GESTIÓN DE RESERVAS Y BLOQUEOS
+    // 5. GESTIÓN DE RESERVAS Y BLOQUEOS (CONECTADO A ROOM)
     fun obtenerReservasFiltradas(): List<Reserva> {
         val usuario = _usuarioActual.value
         val listaReservas = _reservas.value
@@ -120,7 +128,7 @@ class ReservaViewModel : ViewModel() {
 
     fun obtenerReservasPersonales(): List<Reserva> {
         val usuario = _usuarioActual.value
-        val listaReservas = _reservas.value ?: emptyList()
+        val listaReservas = _reservas.value
         return if (usuario != null) {
             listaReservas.filter { it.solicitanteId == usuario.id }
         } else {
@@ -140,7 +148,6 @@ class ReservaViewModel : ViewModel() {
     ): String {
         val cantidad = cantidadParticipantesStr.toIntOrNull() ?: 0
 
-        // 1. Validación de Capacidad Máxima del Espacio
         if (cantidad > espacio.capacidadMaxima) {
             return "La cantidad de participantes ($cantidad) supera la capacidad máxima de '${espacio.displayName}' (${espacio.capacidadMaxima} personas)."
         }
@@ -149,7 +156,6 @@ class ReservaViewModel : ViewModel() {
         val nombre = usuario?.nombre ?: "Desconocido"
         val idSolicitante = usuario?.id ?: ""
 
-        // 2. Validación de reservas duplicadas
         val yaExisteDuplicado = _reservas.value.any {
             it.espacio == espacio &&
                     it.fechaReserva == fechaReserva &&
@@ -179,10 +185,13 @@ class ReservaViewModel : ViewModel() {
             cantidadParticipantes = cantidad
         )
 
-        _reservas.value = listOf(nuevaReserva) + _reservas.value
+        viewModelScope.launch {
+            // Transformamos la UI a Entidad y la enviamos al repositorio
+            repository.crearSolicitud(nuevaReserva.toEntity())
+        }
+
         registrarAuditoria("Reserva Creada", "Reserva ${nuevaReserva.id} por $nombre para ${espacio.displayName} ($cantidad pers.)")
 
-        // Notificar a Inspectoría
         val inspectores = _usuarios.value.filter { it.rol == RolUsuario.INSPECTORIA }
         for (inspector in inspectores) {
             agregarNotificacion(
@@ -197,10 +206,12 @@ class ReservaViewModel : ViewModel() {
     }
 
     fun actualizarEstado(reservaId: String, nuevoEstado: EstadoReserva, justificacion: String = "") {
-        val reservaAfectada = _reservas.value.find { it.id == reservaId }
+        val reservaAfectada = _reservas.value.find { it.id == reservaId } ?: return
 
-        _reservas.value = _reservas.value.map {
-            if (it.id == reservaId) it.copy(estado = nuevoEstado) else it
+        viewModelScope.launch {
+            val reservaActualizada = reservaAfectada.copy(estado = nuevoEstado)
+            // Se actualiza físicamente en Room usando la función de repositorio
+            repository.responderSolicitud(reservaActualizada.toEntity(), EstadoSolicitud.valueOf(nuevoEstado.name), justificacion)
         }
 
         val detalleAuditoria = if (justificacion.isNotBlank()) {
@@ -210,27 +221,24 @@ class ReservaViewModel : ViewModel() {
         }
         registrarAuditoria("Actualización", detalleAuditoria)
 
-        // Enviar la notificación de estado ÚNICAMENTE al dueño/solicitante de la reserva
-        if (reservaAfectada != null) {
-            val titulo = when (nuevoEstado) {
-                EstadoReserva.APROBADA -> "¡Reserva Aprobada!"
-                EstadoReserva.RECHAZADA -> "Reserva Rechazada"
-                EstadoReserva.CANCELADA -> "Reserva Cancelada"
-                else -> "Actualización de Reserva"
-            }
-
-            var mensaje = "Tu solicitud para '${reservaAfectada.espacio.displayName}' el ${reservaAfectada.fechaReserva} ha sido ${nuevoEstado.displayName.lowercase()}."
-            if (justificacion.isNotBlank()) {
-                mensaje += " Motivo: $justificacion"
-            }
-
-            agregarNotificacion(
-                destinatarioId = reservaAfectada.solicitanteId,
-                titulo = titulo,
-                mensaje = mensaje,
-                esGlobal = false
-            )
+        val titulo = when (nuevoEstado) {
+            EstadoReserva.APROBADA -> "¡Reserva Aprobada!"
+            EstadoReserva.RECHAZADA -> "Reserva Rechazada"
+            EstadoReserva.CANCELADA -> "Reserva Cancelada"
+            else -> "Actualización de Reserva"
         }
+
+        var mensaje = "Tu solicitud para '${reservaAfectada.espacio.displayName}' el ${reservaAfectada.fechaReserva} ha sido ${nuevoEstado.displayName.lowercase()}."
+        if (justificacion.isNotBlank()) {
+            mensaje += " Motivo: $justificacion"
+        }
+
+        agregarNotificacion(
+            destinatarioId = reservaAfectada.solicitanteId,
+            titulo = titulo,
+            mensaje = mensaje,
+            esGlobal = false
+        )
     }
 
     fun bloquearEspacio(espacio: TipoEspacio, fecha: String, horaInicio: String, horaFin: String, motivo: String) {
@@ -248,15 +256,22 @@ class ReservaViewModel : ViewModel() {
             horaInicio = horaInicio,
             horaFin = horaFin,
             estado = EstadoReserva.RECHAZADA,
-            fechaSolicitud = fechaSolicitud
+            fechaSolicitud = fechaSolicitud,
+            actividadEspecifica = "Bloqueo", // <- Dato faltante
+            cursoGrupo = "N/A",              // <- Dato faltante
+            cantidadParticipantes = 0        // <- Dato faltante
         )
 
-        _reservas.value = listOf(bloqueoReserva) + _reservas.value
-        registrarAuditoria("Bloqueo de Espacio", "Se bloqueó '${espacio.displayName}' para el $fecha ($horaInicio - $horaFin). Motivo: $motivo")
+
+        // Guardamos el bloqueo físico en la base de datos
+        viewModelScope.launch {
+            repository.crearSolicitud(bloqueoReserva.toEntity())
+        }
+
+        registrarAuditoria("Bloqueo de Espacio", "Se bloqueó '${espacio.displayName}' para el $fecha ($horaInicio $horaFin). Motivo: $motivo")
     }
 
-
-    // 5. SISTEMA DE NOTIFICACIONES IN-APP (Filtrado Reactivo por Usuario)
+    // 6. SISTEMA DE NOTIFICACIONES IN-APP
     private fun agregarNotificacion(destinatarioId: String, titulo: String, mensaje: String, esGlobal: Boolean) {
         val fechaHoraActual = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
         val nuevaNoti = Notificacion(
@@ -286,8 +301,7 @@ class ReservaViewModel : ViewModel() {
         }
     }
 
-
-    // 6. AUDITORÍA Y REGISTROS
+    // 7. AUDITORÍA Y REGISTROS
     private fun registrarAuditoria(accion: String, detalle: String) {
         val fecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
         val evento = EventoAuditoria(System.currentTimeMillis().toString(), fecha, _usuarioActual.value?.nombre ?: "Sistema", accion, detalle)
@@ -305,7 +319,7 @@ class ReservaViewModel : ViewModel() {
         )
     }
 
-    // 7. GESTIÓN DE ESPACIOS Y ESTADOS
+    // 8. GESTIÓN DE ESPACIOS
     private val _espaciosDetalle = MutableStateFlow<List<EspacioDetalle>>(
         listOf(
             EspacioDetalle(TipoEspacio.LABORATORIO, "Laboratorio de Computación equipado con 30 PCs, proyector y pizarra inteligente.", "Pabellón A, Piso 2", 30, "Disponible"),
@@ -325,9 +339,53 @@ class ReservaViewModel : ViewModel() {
         }
         registrarCambioEstadoEspacio(tipo.displayName, nuevoEstado)
     }
+
+    // Traduce de Room (Base de datos) a UI
+    private fun SolicitudReserva.toReserva(): Reserva {
+        return Reserva(
+            id = this.id,
+            solicitanteId = this.solicitanteId,
+            solicitanteNombre = this.solicitanteNombre,
+            espacio = TipoEspacio.valueOf(this.espacio), // Convierte String a Enum
+            motivo = this.motivo,
+            fechaReserva = this.fechaReserva,
+            horaInicio = this.horaInicio,
+            horaFin = this.horaFin,
+            estado = EstadoReserva.valueOf(this.estado),
+            fechaSolicitud = this.fechaSolicitud,
+            actividadEspecifica = this.actividadEspecifica,
+            cursoGrupo = this.cursoGrupo,
+            cantidadParticipantes = this.cantidadParticipantes
+        )
+    }
+
+    private fun Reserva.toEntity(): SolicitudReserva {
+        // Convierte la fecha y hora de String a Long para que el Repositorio pueda calcular las 24 horas
+        val formato = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+        val fechaLong = formato.parse("${this.fechaReserva} ${this.horaInicio}")?.time ?: System.currentTimeMillis()
+
+        return SolicitudReserva(
+            id = this.id,
+            solicitanteId = this.solicitanteId,
+            solicitanteNombre = this.solicitanteNombre,
+            espacio = this.espacio.name,
+            motivo = this.motivo,
+            fechaReserva = this.fechaReserva,
+            horaInicio = this.horaInicio,
+            horaFin = this.horaFin,
+            estado = this.estado.name,
+            fechaSolicitud = this.fechaSolicitud,
+            actividadEspecifica = this.actividadEspecifica,
+            cursoGrupo = this.cursoGrupo,
+            cantidadParticipantes = this.cantidadParticipantes,
+            fechaHoraInicio = fechaLong // <--- Campo numérico requerido por el repositorio
+        )
+    }
+
+
 }
 
-// Estructura auxiliar para vincular destinatarios
+
 data class NotificacionConDestino(
     val destinatarioId: String,
     val esGlobalInspectoria: Boolean,

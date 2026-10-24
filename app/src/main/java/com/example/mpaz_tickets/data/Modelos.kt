@@ -17,12 +17,19 @@ data class Espacio(
 
 @Entity(tableName = "solicitudes")
 data class SolicitudReserva(
-    @PrimaryKey
-    val id: String,
-    val espacioId: String,
-    val fechaHoraInicio: Long,
-    val fechaHoraFin: Long,
-    val actividad: String,
-    var justificacionRechazo: String? = null,
-    var estado: String = EstadoSolicitud.PENDIENTE.name
+    @PrimaryKey val id: String,
+    val solicitanteId: String,
+    val solicitanteNombre: String,
+    val espacio: String,
+    val motivo: String,
+    val fechaReserva: String,
+    val horaInicio: String,
+    val horaFin: String,
+    var estado: String,
+    val fechaSolicitud: String,
+    val actividadEspecifica: String,
+    val cursoGrupo: String,
+    val cantidadParticipantes: Int,
+    var fechaHoraInicio: Long = 0L,
+    var justificacionRechazo: String? = null
 )

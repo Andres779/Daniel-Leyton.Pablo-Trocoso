@@ -34,7 +34,6 @@ import com.example.mpaz_tickets.data.ReservasRepository
 
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: ReservaViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,12 +42,12 @@ class MainActivity : ComponentActivity() {
         //ACA CONSTRUYO MI BASE DE DATOS LOCAL:
         val db = Room.databaseBuilder(
             applicationContext,
-            AppDatabase::class,java,
+            AppDatabase::class.java,
             "reservas.db"
         ).build()
 
         //ACA OBTENGO EL DAO PARA PASARLO AL REPOSITORIO
-        val dao = db.reservasDAO()
+        val dao = db.reservasDao()
         val repository = ReservasRepository(dao)
 
         //Y por ultimo creo un Factory para inyectar el repositorio en el ViewModel

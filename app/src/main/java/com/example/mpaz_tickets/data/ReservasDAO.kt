@@ -4,15 +4,16 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ReservasDao {
     @Insert
-    suspend fun insertar(solicitud: SolicitudReserva)
+    suspend fun insertar(solicitud: SolicitudReserva): Long
 
     @Query("SELECT * FROM solicitudes")
-    suspend fun listar(): List<SolicitudReserva>
+    fun listar(): Flow<List<SolicitudReserva>>
 
     @Update
-    suspend fun actualizar(solicitud: SolicitudReserva)
+    suspend fun actualizar(solicitud: SolicitudReserva): Int
 }
