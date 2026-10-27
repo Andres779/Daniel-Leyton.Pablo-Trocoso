@@ -229,8 +229,11 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
 
         viewModelScope.launch {
             val reservaActualizada = reservaAfectada.copy(estado = nuevoEstado)
-            // Se actualiza físicamente en Room usando la función de repositorio
-            repository.responderSolicitud(reservaActualizada.toEntity(), EstadoSolicitud.valueOf(nuevoEstado.name), justificacion)
+            repository.responderSolicitud(
+                reservaActualizada.toEntity(),
+                nuevoEstado.name,
+                justificacion
+            )
         }
 
         val detalleAuditoria = if (justificacion.isNotBlank()) {

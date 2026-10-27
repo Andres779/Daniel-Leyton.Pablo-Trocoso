@@ -28,15 +28,18 @@ class ReservasRepository(private val dao: ReservasDao) {
         return Result.success("Solicitud enviada exitosamente.")
     }
 
-    suspend fun responderSolicitud(solicitud: SolicitudReserva, nuevoEstado: EstadoSolicitud, justificacion: String?): Result<String> {
-        if (nuevoEstado == EstadoSolicitud.RECHAZADA && justificacion.isNullOrBlank()) {
+    suspend fun responderSolicitud(
+        solicitud: SolicitudReserva,
+        nuevoEstado: String,
+        justificacion: String?
+    ): Result<String> {
+        if (nuevoEstado == "RECHAZADA" && justificacion.isNullOrBlank()) {
             return Result.failure(Exception("Error: Es obligatorio ingresar una justificación para rechazar."))
         }
 
-        solicitud.estado = nuevoEstado.name
+        solicitud.estado = nuevoEstado
         solicitud.justificacionRechazo = justificacion
 
-        // Se actualiza físicamente en Room
         dao.actualizar(solicitud)
         return Result.success("Estado actualizado a $nuevoEstado.")
     }
