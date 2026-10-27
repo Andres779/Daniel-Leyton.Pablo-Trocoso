@@ -384,15 +384,28 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         _fotoEvidencia.value = null
     }
 
+    // Calendario
+    fun obtenerIntentCalendarioNativo(
+        espacioNombre: String,
+        actividad: String,
+        motivo: String,
+        fecha: String,
+        horaInicio: String,
+        horaFin: String
+    ): Intent {
+        val formato = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+        val inicio = formato.parse("$fecha $horaInicio")?.time ?: System.currentTimeMillis()
+        val fin = formato.parse("$fecha $horaFin")?.time ?: (inicio + 60 * 60 * 1000)
 
-    fun obtenerIntentCalendarioNativo(espacioNombre: String, actividad: String, motivo: String): Intent {
         return Intent(Intent.ACTION_INSERT).apply {
             data = CalendarContract.Events.CONTENT_URI
             putExtra(CalendarContract.Events.TITLE, "Reserva: $espacioNombre")
             putExtra(CalendarContract.Events.DESCRIPTION, "Actividad: $actividad\nMotivo: $motivo")
+            putExtra(CalendarContract.Events.EVENT_LOCATION, espacioNombre)
+            putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, inicio)
+            putExtra(CalendarContract.EXTRA_EVENT_END_TIME, fin)
         }
     }
-
 
 
 
