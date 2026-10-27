@@ -15,6 +15,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.mpaz_tickets.data.SolicitudReserva
+import android.graphics.Bitmap
+import android.content.Intent
+import android.provider.CalendarContract
 
 // 1. Agregamos el repositorio al constructor
 class ReservaViewModel(private val repository: ReservasRepository) : ViewModel() {
@@ -54,7 +57,14 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         initialValue = emptyList()
     )
 
-    // 2. INICIALIZACIÓN DE LA BASE DE DATOS
+
+    // ---ESTADO PARA LA CÁMARA---
+    private val _fotoEvidencia = MutableStateFlow<Bitmap?>(null)
+    val fotoEvidencia: StateFlow<Bitmap?> = _fotoEvidencia.asStateFlow()
+
+
+
+    // 2. INICIALIZACIÓN DE LA BASE DE DATOS:
     init {
         // Al iniciar, nos suscribimos a los cambios de la base de datos de forma reactiva
         viewModelScope.launch {
@@ -64,7 +74,7 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         }
     }
 
-    // 3. GESTIÓN DE AUTENTICACIÓN Y SESIÓN
+    // 3. GESTIÓN DE AUTENTICACIÓN Y SESIÓN:
     fun iniciarSesion(correo: String, contrasenia: String): Boolean {
         val user = _usuarios.value.find {
             it.correo.trim().equals(correo.trim(), ignoreCase = true) && it.contrasenia == contrasenia
@@ -358,6 +368,36 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         }
         registrarCambioEstadoEspacio(tipo.displayName, nuevoEstado)
     }
+
+
+    // --- 9. RECURSOS NATIVOS (CÁMARA) ---
+
+    fun guardarFotoEvidencia(bitmap: Bitmap?) {
+        _fotoEvidencia.value = bitmap
+        if (bitmap != null) {
+            registrarAuditoria("Evidencia Fotográfica", "Se capturó una imagen del estado del recinto")
+        }
+    }
+
+
+    fun limpiarFotoEvidencia() {
+        _fotoEvidencia.value = null
+    }
+
+
+    fun obtenerIntentCalendarioNativo(espacioNombre: String, actividad: String, motivo: String): Intent {
+        return Intent(Intent.ACTION_INSERT).apply {
+            data = CalendarContract.Events.CONTENT_URI
+            putExtra(CalendarContract.Events.TITLE, "Reserva: $espacioNombre")
+            putExtra(CalendarContract.Events.DESCRIPTION, "Actividad: $actividad\nMotivo: $motivo")
+        }
+    }
+
+
+
+
+
+    //BD:
 
     // Traduce de Room (Base de datos) a UI
     private fun SolicitudReserva.toReserva(): Reserva {
