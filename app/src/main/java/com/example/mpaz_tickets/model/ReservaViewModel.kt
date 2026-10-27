@@ -152,6 +152,25 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             return "La cantidad de participantes ($cantidad) supera la capacidad máxima de '${espacio.displayName}' (${espacio.capacidadMaxima} personas)."
         }
 
+        val formatoFecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+        try {
+            val fechaHoraInicioReserva = formatoFecha.parse("$fechaReserva $horaInicio")
+            val fechaHoraActual = Date()
+
+            if (fechaHoraInicioReserva != null) {
+                val diferenciaMilisegundos = fechaHoraInicioReserva.time - fechaHoraActual.time
+                val horasDiferencia = diferenciaMilisegundos / (1000 * 60 * 60)
+
+                if (horasDiferencia < 24) {
+                    return "Las reservas deben realizarse con al menos 24 horas de anticipación."
+                }
+            }
+        } catch (e: Exception) {
+            return "Formato de fecha u hora inválido. Usa dd/MM/yyyy para la fecha y HH:mm para la hora."
+        }
+
+
+
         val usuario = _usuarioActual.value
         val nombre = usuario?.nombre ?: "Desconocido"
         val idSolicitante = usuario?.id ?: ""
