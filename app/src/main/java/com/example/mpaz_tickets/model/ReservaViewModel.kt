@@ -1,12 +1,16 @@
 package com.example.mpaz_tickets.model
 
+import android.content.Intent
+import android.graphics.Bitmap
+import android.provider.CalendarContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mpaz_tickets.data.EstadoSolicitud
 import com.example.mpaz_tickets.data.ReservasRepository
+import com.example.mpaz_tickets.data.SolicitudReserva
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -14,12 +18,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.example.mpaz_tickets.data.SolicitudReserva
-import android.graphics.Bitmap
-import android.content.Intent
-import android.provider.CalendarContract
 
-// 1. Agregamos el repositorio al constructor
 class ReservaViewModel(private val repository: ReservasRepository) : ViewModel() {
 
     // 1. ESTADOS Y FLUJOS (STATE FLOWS)
@@ -57,24 +56,20 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         initialValue = emptyList()
     )
 
-
-    // ---ESTADO PARA LA CÁMARA---
+    // --- ESTADO PARA LA CÁMARA ---
     private val _fotoEvidencia = MutableStateFlow<Bitmap?>(null)
     val fotoEvidencia: StateFlow<Bitmap?> = _fotoEvidencia.asStateFlow()
 
-
-
-    // 2. INICIALIZACIÓN DE LA BASE DE DATOS:
+    // 2. INICIALIZACIÓN DE LA BASE DE DATOS
     init {
-        // Al iniciar, nos suscribimos a los cambios de la base de datos de forma reactiva
         viewModelScope.launch {
             repository.obtenerTodasLasReservas().collect { listaDeBaseDeDatos ->
-                _reservas.value = listaDeBaseDeDatos.map { it.toReserva()}
+                _reservas.value = listaDeBaseDeDatos.map { it.toReserva() }
             }
         }
     }
 
-    // 3. GESTIÓN DE AUTENTICACIÓN Y SESIÓN:
+    // 3. GESTIÓN DE AUTENTICACIÓN Y SESIÓN
     fun iniciarSesion(correo: String, contrasenia: String): Boolean {
         val user = _usuarios.value.find {
             it.correo.trim().equals(correo.trim(), ignoreCase = true) && it.contrasenia == contrasenia
@@ -179,8 +174,6 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             return "Formato de fecha u hora inválido. Usa dd/MM/yyyy para la fecha y HH:mm para la hora."
         }
 
-
-
         val usuario = _usuarioActual.value
         val nombre = usuario?.nombre ?: "Desconocido"
         val idSolicitante = usuario?.id ?: ""
@@ -215,7 +208,6 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         )
 
         viewModelScope.launch {
-            // Transformamos la UI a Entidad y la enviamos al repositorio
             repository.crearSolicitud(nuevaReserva.toEntity())
         }
 
@@ -241,7 +233,7 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             val reservaActualizada = reservaAfectada.copy(estado = nuevoEstado)
             repository.responderSolicitud(
                 reservaActualizada.toEntity(),
-                nuevoEstado.name,
+                EstadoSolicitud.valueOf(nuevoEstado.name),
                 justificacion
             )
         }
@@ -289,13 +281,11 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             horaFin = horaFin,
             estado = EstadoReserva.RECHAZADA,
             fechaSolicitud = fechaSolicitud,
-            actividadEspecifica = "Bloqueo", // <- Dato faltante
-            cursoGrupo = "N/A",              // <- Dato faltante
-            cantidadParticipantes = 0        // <- Dato faltante
+            actividadEspecifica = "Bloqueo",
+            cursoGrupo = "N/A",
+            cantidadParticipantes = 0
         )
 
-
-        // Guardamos el bloqueo físico en la base de datos
         viewModelScope.launch {
             repository.crearSolicitud(bloqueoReserva.toEntity())
         }
@@ -372,9 +362,7 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         registrarCambioEstadoEspacio(tipo.displayName, nuevoEstado)
     }
 
-
-    // --- 9. RECURSOS NATIVOS (CÁMARA) ---
-
+    // --- 9. RECURSOS NATIVOS ---
     fun guardarFotoEvidencia(bitmap: Bitmap?) {
         _fotoEvidencia.value = bitmap
         if (bitmap != null) {
@@ -382,12 +370,10 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         }
     }
 
-
     fun limpiarFotoEvidencia() {
         _fotoEvidencia.value = null
     }
 
-    // Calendario
     fun obtenerIntentCalendarioNativo(
         espacioNombre: String,
         actividad: String,
@@ -410,18 +396,13 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         }
     }
 
-
-
-
-    //BD:
-
-    // Traduce de Room (Base de datos) a UI
+    // --- CONVERSIÓN ROOM DE/A MODELO ---
     private fun SolicitudReserva.toReserva(): Reserva {
         return Reserva(
             id = this.id,
             solicitanteId = this.solicitanteId,
             solicitanteNombre = this.solicitanteNombre,
-            espacio = TipoEspacio.valueOf(this.espacio), // Convierte String a Enum
+            espacio = TipoEspacio.valueOf(this.espacio),
             motivo = this.motivo,
             fechaReserva = this.fechaReserva,
             horaInicio = this.horaInicio,
@@ -435,7 +416,6 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
     }
 
     private fun Reserva.toEntity(): SolicitudReserva {
-        // Convierte la fecha y hora de String a Long para que el Repositorio pueda calcular las 24 horas
         val formato = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
         val fechaLong = formato.parse("${this.fechaReserva} ${this.horaInicio}")?.time ?: System.currentTimeMillis()
 
@@ -453,13 +433,10 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             actividadEspecifica = this.actividadEspecifica,
             cursoGrupo = this.cursoGrupo,
             cantidadParticipantes = this.cantidadParticipantes,
-            fechaHoraInicio = fechaLong // <--- Campo numérico requerido por el repositorio
+            fechaHoraInicio = fechaLong
         )
     }
-
-
 }
-
 
 data class NotificacionConDestino(
     val destinatarioId: String,
