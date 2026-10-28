@@ -1,11 +1,18 @@
 package com.example.mpaz_tickets.ui
 
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.mpaz_tickets.model.EstadoReserva
@@ -16,14 +23,22 @@ import com.example.mpaz_tickets.model.ReservaViewModel
 fun MisReservasScreen(viewModel: ReservaViewModel) {
     val reservasGlobales by viewModel.reservas.collectAsState()
     val usuarioActual by viewModel.usuarioActual.collectAsState()
+    val fotoEvidencia by viewModel.fotoEvidencia.collectAsState()
+    val context = LocalContext.current
 
     val reservas = remember(reservasGlobales, usuarioActual) {
         viewModel.obtenerReservasPersonales()
     }
 
     var reservaSeleccionada by remember { mutableStateOf<Reserva?>(null) }
-    // Estado para controlar la visibilidad del modal de confirmación
     var reservaACancelar by remember { mutableStateOf<Reserva?>(null) }
+
+    // Lanzador para la cámara nativa
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        viewModel.guardarFotoEvidencia(bitmap)
+    }
 
     Column(
         modifier = Modifier
@@ -61,43 +76,93 @@ fun MisReservasScreen(viewModel: ReservaViewModel) {
         reservaSeleccionada?.let { selected ->
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Validación: Solo se puede cancelar si está PENDIENTE o APROBADA
-            if (selected.estado == EstadoReserva.PENDIENTE || selected.estado == EstadoReserva.APROBADA) {
-                Text("Opciones para la reserva: ${selected.id}", style = MaterialTheme.typography.titleMedium)
+            Text("Opciones para la reserva: ${selected.id}", style = MaterialTheme.typography.titleMedium)
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.Center
-                ) {
+            // Fila de botones dinámicos según el estado
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                if (selected.estado == EstadoReserva.PENDIENTE || selected.estado == EstadoReserva.APROBADA) {
                     Button(
-                        onClick = {
-                            // En lugar de cancelar directo, guardamos la reserva para activar el AlertDialog
-                            reservaACancelar = selected
-                        },
+                        onClick = { reservaACancelar = selected },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text("Cancelar mi reserva")
+                        Text("Cancelar")
                     }
                 }
-            } else {
-                Text(
-                    text = "Esta reserva se encuentra ${selected.estado.displayName} y no puede ser modificada.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Button(
-                    onClick = { reservaSeleccionada = null },
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Text("Cerrar")
+
+                // Opciones exclusivas para reservas aprobadas
+                if (selected.estado == EstadoReserva.APROBADA) {
+                    Button(
+                        onClick = {
+                            val intent = viewModel.obtenerIntentCalendarioNativo(
+                                espacioNombre = selected.espacio.displayName,
+                                actividad = selected.actividadEspecifica,
+                                motivo = selected.motivo,
+                                fecha = selected.fechaReserva,
+                                horaInicio = selected.horaInicio,
+                                horaFin = selected.horaFin
+                            )
+                            context.startActivity(intent)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text("Agendar")
+                    }
+
+                    Button(
+                        onClick = { cameraLauncher.launch(null) },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Text("Cámara")
+                    }
                 }
+            }
+
+            // Previsualización de la foto tomada
+            fotoEvidencia?.let { bitmap ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Evidencia capturada:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Evidencia de estado del espacio",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .padding(top = 8.dp)
+                )
+                TextButton(
+                    onClick = { viewModel.limpiarFotoEvidencia() },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text("Borrar foto", color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            if (selected.estado != EstadoReserva.PENDIENTE && selected.estado != EstadoReserva.APROBADA) {
+                Text(
+                    text = "Esta reserva se encuentra ${selected.estado.displayName.lowercase()} y no puede ser modificada.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            Button(
+                onClick = { reservaSeleccionada = null },
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .align(Alignment.CenterHorizontally)
+            ) {
+                Text("Cerrar")
             }
         }
     }
 
-    // --- MODAL DE CONFIRMACIÓN (AlertDialog) ---
+    // --- MODAL DE CONFIRMACIÓN DE CANCELACIÓN ---
     reservaACancelar?.let { reserva ->
         AlertDialog(
             onDismissRequest = { reservaACancelar = null },
@@ -108,7 +173,7 @@ fun MisReservasScreen(viewModel: ReservaViewModel) {
                     onClick = {
                         viewModel.actualizarEstado(reserva.id, EstadoReserva.CANCELADA)
                         reservaACancelar = null
-                        reservaSeleccionada = null // Limpia la selección de la vista principal
+                        reservaSeleccionada = null
                     }
                 ) {
                     Text("Sí, cancelar", color = MaterialTheme.colorScheme.error)
