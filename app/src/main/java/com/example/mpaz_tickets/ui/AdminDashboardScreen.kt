@@ -1,5 +1,9 @@
 package com.example.mpaz_tickets.ui
 
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -7,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.mpaz_tickets.model.EstadoReserva
@@ -17,6 +22,7 @@ import com.example.mpaz_tickets.model.ReservaViewModel
 fun AdminDashboardScreen(viewModel: ReservaViewModel) {
     val reservas by viewModel.reservas.collectAsState()
     val usuarios by viewModel.usuarios.collectAsState()
+    val fotoEvidencia by viewModel.fotoEvidencia.collectAsState() // Observamos la foto
 
     var mostrarDialogoCrear by remember { mutableStateOf(false) }
     var pestañaSeleccionada by remember { mutableStateOf(0) } // 0: Reservas, 1: Usuarios
@@ -24,6 +30,13 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
     // Estados para los modales de confirmación
     var reservaParaCambioEstado by remember { mutableStateOf<Pair<String, EstadoReserva>?>(null) }
     var usuarioAEliminar by remember { mutableStateOf<String?>(null) }
+
+    // Lanzador para la cámara nativa del administrador
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        viewModel.guardarFotoEvidencia(bitmap)
+    }
 
     if (mostrarDialogoCrear) {
         DialogoCrearUsuario(viewModel) { mostrarDialogoCrear = false }
@@ -50,6 +63,33 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
 
         if (pestañaSeleccionada == 0) {
             // VISTA DE RESERVAS
+
+            // Si el admin tomó una foto, mostramos la previsualización arriba de la lista
+            fotoEvidencia?.let { bitmap ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Evidencia capturada en auditoría:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = "Evidencia de estado del espacio",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .padding(vertical = 8.dp)
+                        )
+                        TextButton(onClick = { viewModel.limpiarFotoEvidencia() }) {
+                            Text("Limpiar evidencia", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(reservas) { reserva ->
                     var menuExpandido by remember { mutableStateOf(false) }
@@ -60,7 +100,7 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("${reserva.id} - ${reserva.solicitanteNombre}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("${reserva.id}\n${reserva.solicitanteNombre}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
                                 Box {
                                     AssistChip(onClick = { menuExpandido = true }, label = { Text(reserva.estado.displayName) })
@@ -81,6 +121,19 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
                             Text("Espacio: ${reserva.espacio.displayName}", style = MaterialTheme.typography.bodyLarge)
                             Text("Fecha: ${reserva.fechaReserva} | Horario: ${reserva.horaInicio} - ${reserva.horaFin}", style = MaterialTheme.typography.bodyMedium)
                             Text("Motivo: ${reserva.motivo}", style = MaterialTheme.typography.bodySmall)
+
+                            // Botón nativo para que Inspectoría capture evidencia
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                TextButton(
+                                    onClick = { cameraLauncher.launch(null) },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Text("Tomar Evidencia (Cámara)")
+                                }
+                            }
                         }
                     }
                 }
