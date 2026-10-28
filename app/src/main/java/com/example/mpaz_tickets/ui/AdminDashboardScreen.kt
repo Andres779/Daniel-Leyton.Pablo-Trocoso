@@ -1,6 +1,9 @@
 package com.example.mpaz_tickets.ui
 
+import android.Manifest
+import android.content.ActivityNotFoundException
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -12,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.mpaz_tickets.model.EstadoReserva
@@ -23,6 +27,7 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
     val reservas by viewModel.reservas.collectAsState()
     val usuarios by viewModel.usuarios.collectAsState()
     val fotoEvidencia by viewModel.fotoEvidencia.collectAsState() // Observamos la foto
+    val context = LocalContext.current // Necesario para los Toast
 
     var mostrarDialogoCrear by remember { mutableStateOf(false) }
     var pestañaSeleccionada by remember { mutableStateOf(0) } // 0: Reservas, 1: Usuarios
@@ -31,11 +36,26 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
     var reservaParaCambioEstado by remember { mutableStateOf<Pair<String, EstadoReserva>?>(null) }
     var usuarioAEliminar by remember { mutableStateOf<String?>(null) }
 
-    // Lanzador para la cámara nativa del administrador
+    // 1. Lanzador para la cámara nativa del administrador
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap: Bitmap? ->
         viewModel.guardarFotoEvidencia(bitmap)
+    }
+
+    // 2. Lanzador para pedir permisos de cámara en tiempo de ejecución, esto es para que no se nos cierre la aplicacion al intentar abrir la camara sin permisos
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            try {
+                cameraLauncher.launch(null)
+            } catch (e: ActivityNotFoundException) {
+                Toast.makeText(context, "No se encontró aplicación de cámara", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "Permiso de cámara denegado", Toast.LENGTH_SHORT).show()
+        }
     }
 
     if (mostrarDialogoCrear) {
@@ -122,13 +142,13 @@ fun AdminDashboardScreen(viewModel: ReservaViewModel) {
                             Text("Fecha: ${reserva.fechaReserva} | Horario: ${reserva.horaInicio} - ${reserva.horaFin}", style = MaterialTheme.typography.bodyMedium)
                             Text("Motivo: ${reserva.motivo}", style = MaterialTheme.typography.bodySmall)
 
-                            // Botón nativo para que Inspectoría capture evidencia
+                            // Botón nativo actualizado: pide permisos primero
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                                 horizontalArrangement = Arrangement.End
                             ) {
                                 TextButton(
-                                    onClick = { cameraLauncher.launch(null) },
+                                    onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.secondary)
                                 ) {
                                     Text("Tomar Evidencia (Cámara)")

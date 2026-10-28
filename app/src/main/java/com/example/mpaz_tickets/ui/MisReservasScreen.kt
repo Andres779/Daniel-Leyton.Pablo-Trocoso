@@ -1,6 +1,9 @@
 package com.example.mpaz_tickets.ui
 
+import android.Manifest
+import android.content.ActivityNotFoundException
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -33,11 +36,26 @@ fun MisReservasScreen(viewModel: ReservaViewModel) {
     var reservaSeleccionada by remember { mutableStateOf<Reserva?>(null) }
     var reservaACancelar by remember { mutableStateOf<Reserva?>(null) }
 
-    // Lanzador para la cámara nativa
+    // 1. Lanzador para la cámara nativa
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap: Bitmap? ->
         viewModel.guardarFotoEvidencia(bitmap)
+    }
+
+    // 2. Lanzador para pedir permisos de cámara en tiempo de ejecución, esto es tambien par aevitar que se cierre la aplicacion al intentar abrir la camara sin permisos
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            try {
+                cameraLauncher.launch(null)
+            } catch (e: ActivityNotFoundException) {
+                Toast.makeText(context, "No se encontró aplicación de cámara", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "Permiso de cámara denegado", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Column(
@@ -78,7 +96,7 @@ fun MisReservasScreen(viewModel: ReservaViewModel) {
 
             Text("Opciones para la reserva: ${selected.id}", style = MaterialTheme.typography.titleMedium)
 
-            // Fila de botones dinámicos según el estado
+            // Fila de botones dinámicos según el estado (Pendiente, Aprobado)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -113,8 +131,9 @@ fun MisReservasScreen(viewModel: ReservaViewModel) {
                         Text("Agendar")
                     }
 
+                    // Botón actualizado: Pide el permiso primero en lugar de lanzar la cámara de golpe
                     Button(
-                        onClick = { cameraLauncher.launch(null) },
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                     ) {
                         Text("Cámara")
