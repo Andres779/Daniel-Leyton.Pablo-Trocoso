@@ -233,7 +233,7 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             val reservaActualizada = reservaAfectada.copy(estado = nuevoEstado)
             repository.responderSolicitud(
                 reservaActualizada.toEntity(),
-                EstadoSolicitud.valueOf(nuevoEstado.name),
+                nuevoEstado.name,
                 justificacion
             )
         }
