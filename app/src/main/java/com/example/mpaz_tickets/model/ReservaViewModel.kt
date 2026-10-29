@@ -5,9 +5,11 @@ import android.graphics.Bitmap
 import android.provider.CalendarContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.mpaz_tickets.data.AuditoriaEntity
 import com.example.mpaz_tickets.data.EstadoSolicitud
 import com.example.mpaz_tickets.data.ReservasRepository
 import com.example.mpaz_tickets.data.SolicitudReserva
+import com.example.mpaz_tickets.data.UsuarioEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +24,15 @@ import java.util.Locale
 class ReservaViewModel(private val repository: ReservasRepository) : ViewModel() {
 
     // 1. ESTADOS Y FLUJOS (STATE FLOWS)
-    private val _usuarios = MutableStateFlow<List<Usuario>>(
-        listOf(
-            Usuario("1", "Inspector General", "inspector@colegiomariapaz.cl", "123456", RolUsuario.INSPECTORIA),
-            Usuario("2", "Profe Juan", "juan@colegiomariapaz.cl", "123456", RolUsuario.AUTORIZADO),
-            Usuario("3", "Profe Ana", "ana@colegiomariapaz.cl", "123456", RolUsuario.AUTORIZADO)
-        )
+    // Usuarios que se insertan SOLO la primera vez que se abre la app
+    private val usuariosIniciales = listOf(
+        Usuario("1", "Inspector General", "inspector@colegiomariapaz.cl", "123456", RolUsuario.INSPECTORIA),
+        Usuario("2", "Profe Juan", "juan@colegiomariapaz.cl", "123456", RolUsuario.AUTORIZADO),
+        Usuario("3", "Profe Ana", "ana@colegiomariapaz.cl", "123456", RolUsuario.AUTORIZADO)
     )
+
+    // Se llena desde la base de datos (ver init)
+    private val _usuarios = MutableStateFlow<List<Usuario>>(emptyList())
     val usuarios: StateFlow<List<Usuario>> = _usuarios.asStateFlow()
 
     private val _usuarioActual = MutableStateFlow<Usuario?>(null)
@@ -65,6 +69,23 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
         viewModelScope.launch {
             repository.obtenerTodasLasReservas().collect { listaDeBaseDeDatos ->
                 _reservas.value = listaDeBaseDeDatos.map { it.toReserva() }
+            }
+        }
+
+        // Usuarios: siembra inicial (solo si la tabla está vacía) y observación
+        viewModelScope.launch {
+            repository.sembrarUsuariosSiVacio(usuariosIniciales.map { it.toEntity() })
+        }
+        viewModelScope.launch {
+            repository.obtenerUsuarios().collect { lista ->
+                _usuarios.value = lista.map { it.toUsuario() }
+            }
+        }
+
+        // Historial de auditoría persistente
+        viewModelScope.launch {
+            repository.obtenerHistorial().collect { lista ->
+                _historial.value = lista.map { it.toEvento() }
             }
         }
     }
@@ -106,18 +127,20 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             rol = rol
         )
 
-        _usuarios.value = _usuarios.value + nuevoUser
+        viewModelScope.launch { repository.guardarUsuario(nuevoUser.toEntity()) }
         registrarAuditoria("Usuario Creado", "Inspectoría creó a $nombre (${rol.displayName})")
         return "Éxito"
     }
 
     fun eliminarUsuario(idUsuario: String) {
-        val usuarioAEliminar = _usuarios.value.find { it.id == idUsuario }
-        if (usuarioAEliminar?.rol == RolUsuario.INSPECTORIA && _usuarios.value.count { it.rol == RolUsuario.INSPECTORIA } <= 1) {
+        val usuarioAEliminar = _usuarios.value.find { it.id == idUsuario } ?: return
+        // No permitir que Inspectoría se elimine a sí misma mientras tiene la sesión abierta
+        if (usuarioAEliminar.id == _usuarioActual.value?.id) return
+        if (usuarioAEliminar.rol == RolUsuario.INSPECTORIA && _usuarios.value.count { it.rol == RolUsuario.INSPECTORIA } <= 1) {
             return
         }
-        _usuarios.value = _usuarios.value.filter { it.id != idUsuario }
-        registrarAuditoria("Usuario Eliminado", "Se eliminó al usuario: ${usuarioAEliminar?.nombre ?: idUsuario}")
+        viewModelScope.launch { repository.eliminarUsuario(idUsuario) }
+        registrarAuditoria("Usuario Eliminado", "Se eliminó al usuario: ${usuarioAEliminar.nombre}")
     }
 
     // 5. GESTIÓN DE RESERVAS Y BLOQUEOS (CONECTADO A ROOM)
@@ -326,12 +349,19 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
     // 7. AUDITORÍA Y REGISTROS
     private fun registrarAuditoria(accion: String, detalle: String) {
         val fecha = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date())
-        val evento = EventoAuditoria(System.currentTimeMillis().toString(), fecha, _usuarioActual.value?.nombre ?: "Sistema", accion, detalle)
-        _historial.value = listOf(evento) + _historial.value
+        // El evento se arma ANTES de lanzar la corrutina: así, en cerrarSesion(),
+        // queda guardado el nombre del usuario aunque la sesión se cierre enseguida.
+        val evento = AuditoriaEntity(
+            fechaHora = fecha,
+            usuario = _usuarioActual.value?.nombre ?: "Sistema",
+            accion = accion,
+            detalle = detalle
+        )
+        viewModelScope.launch { repository.registrarEvento(evento) }
     }
 
     fun limpiarHistorial() {
-        _historial.value = emptyList()
+        viewModelScope.launch { repository.limpiarHistorial() }
     }
 
     fun registrarCambioEstadoEspacio(espacio: String, nuevoEstado: String) {
@@ -414,6 +444,19 @@ class ReservaViewModel(private val repository: ReservasRepository) : ViewModel()
             cantidadParticipantes = this.cantidadParticipantes
         )
     }
+
+    private fun Usuario.toEntity() = UsuarioEntity(
+        id = id, nombre = nombre, correo = correo, contrasenia = contrasenia, rol = rol.name
+    )
+
+    private fun UsuarioEntity.toUsuario() = Usuario(
+        id = id, nombre = nombre, correo = correo, contrasenia = contrasenia,
+        rol = RolUsuario.valueOf(rol)
+    )
+
+    private fun AuditoriaEntity.toEvento() = EventoAuditoria(
+        id = id.toString(), fechaHora = fechaHora, usuario = usuario, accion = accion, detalle = detalle
+    )
 
     private fun Reserva.toEntity(): SolicitudReserva {
         val formato = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())

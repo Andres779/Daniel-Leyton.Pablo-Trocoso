@@ -30,6 +30,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.room.Room
 import com.example.mpaz_tickets.data.AppDatabase
 import com.example.mpaz_tickets.data.ReservasRepository
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 
 
 
@@ -39,18 +44,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        //ACA CONSTRUYO MI BASE DE DATOS LOCAL:
         val db = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
             "reservas.db"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
 
-        //ACA OBTENGO EL DAO PARA PASARLO AL REPOSITORIO
-        val dao = db.reservasDao()
-        val repository = ReservasRepository(dao)
+        val repository = ReservasRepository(
+            db.reservasDao(),
+            db.usuariosDao(),
+            db.auditoriaDao()
+        )
 
-        //Y por ultimo creo un Factory para inyectar el repositorio en el ViewModel
         val factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 @Suppress("UNCHECKED_CAST")
@@ -58,7 +63,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Aca instancio mi ViewModel utilizando el Factory
         val viewModel = ViewModelProvider(this, factory)[ReservaViewModel::class.java]
 
         setContent {
@@ -217,7 +221,11 @@ fun MainApp(viewModel: ReservaViewModel) {
         NavHost(
             navController = navController,
             startDestination = Screen.Login.route,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding),
+            enterTransition = { fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 8 } },
+            exitTransition = { fadeOut(tween(200)) },
+            popEnterTransition = { fadeIn(tween(300)) },
+            popExitTransition = { fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { it / 8 } }
         ) {
             composable(Screen.Login.route) { LoginScreen(viewModel, navController) }
 
