@@ -2,7 +2,27 @@ package com.example.mpaz_tickets.data
 
 import kotlinx.coroutines.flow.Flow
 
-class ReservasRepository(private val dao: ReservasDao) {
+class ReservasRepository(private val dao: ReservasDao,
+                         private val usuariosDao: UsuariosDao,
+                         private val auditoriaDao: AuditoriaDao
+) {
+
+    fun obtenerUsuarios(): Flow<List<UsuarioEntity>> = usuariosDao.listar()
+
+    suspend fun sembrarUsuariosSiVacio(iniciales: List<UsuarioEntity>) {
+        if (usuariosDao.contar() == 0) usuariosDao.insertarTodos(iniciales)
+    }
+
+    suspend fun guardarUsuario(usuario: UsuarioEntity) = usuariosDao.insertar(usuario)
+
+    suspend fun eliminarUsuario(id: String) = usuariosDao.eliminar(id)
+
+    // ---------- AUDITORÍA ----------
+    fun obtenerHistorial(): Flow<List<AuditoriaEntity>> = auditoriaDao.listar()
+
+    suspend fun registrarEvento(evento: AuditoriaEntity) = auditoriaDao.insertar(evento)
+
+    suspend fun limpiarHistorial() = auditoriaDao.limpiar()
 
     val catalogoEspacios = listOf(
             Espacio("1", "Biblioteca", "Lectura y Estudio", 30),
